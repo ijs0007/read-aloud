@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Read Aloud</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Read Aloud">
+<meta name="theme-color" content="#0B63CE">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%230B63CE'/%3E%3Cpath d='M62 68h22l26-22v88l-26-22H62z' fill='%23fff'/%3E%3Cpath d='M124 66a34 34 0 010 48M136 52a54 54 0 010 76' stroke='%23fff' stroke-width='10' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
+
+<style>
+  :root{
+    --bg:#FFFDF8;
+    --surface:#FFFFFF;
+    --ink:#161616;
+    --ink-soft:#5A5A5A;
+    --line:#E2DFD8;
+    --accent:#0B63CE;
+    --accent-ink:#FFFFFF;
+    --hl:#FFE9A8;
+    --hl-line:#C99A00;
+    --danger:#9B1C1C;
+    --pad: max(16px, env(safe-area-inset-left));
+    --fs: 26px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#111214; --surface:#1B1D20; --ink:#F4F2EE; --ink-soft:#B2AEA6;
+      --line:#33363B; --accent:#5EA9FF; --accent-ink:#0A1220;
+      --hl:#4A3C00; --hl-line:#FFD34D;
+    }
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;height:100%}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:18px; line-height:1.45;
+    -webkit-text-size-adjust:100%;
+    overscroll-behavior-y:none;
+  }
+  button{font-family:inherit; cursor:pointer; border:none; background:none; color:inherit}
+
+  /* ---------- shell ---------- */
+  #app{display:flex; flex-direction:column; height:100dvh; height:100vh}
+  header{
+    flex:0 0 auto; display:flex; align-items:center; justify-content:space-between;
+    gap:10px; padding:calc(env(safe-area-inset-top) + 10px) var(--pad) 10px;
+    border-bottom:1px solid var(--line); background:var(--surface);
+  }
+  .brand{display:flex; align-items:center; gap:9px; font-weight:700; font-size:19px; letter-spacing:-.01em}
+  .brand svg{width:26px;height:26px;flex:0 0 auto}
+  .hbtn{
+    font-size:16px; font-weight:650; color:var(--accent);
+    padding:11px 14px; border-radius:12px; border:2px solid var(--line);
+    min-height:46px;
+  }
+  .hbtn:active{background:var(--line)}
+  .hidden{display:none !important}
+
+  /* ---------- start screen ---------- */
+  #start{flex:1 1 auto; overflow-y:auto; padding:22px var(--pad) 40px; -webkit-overflow-scrolling:touch}
+  .lede{font-size:21px; line-height:1.4; color:var(--ink-soft); margin:0 0 22px; max-width:36ch}
+  ol.steps{margin:0 0 26px; padding-left:0; list-style:none; counter-reset:s}
+  ol.steps li{
+    counter-increment:s; position:relative; padding:0 0 0 46px; margin-bottom:16px;
+    font-size:20px; line-height:1.4; max-width:40ch;
+  }
+  ol.steps li::before{
+    content:counter(s); position:absolute; left:0; top:-1px;
+    width:32px; height:32px; border-radius:50%; background:var(--accent); color:var(--accent-ink);
+    font-weight:700; font-size:17px; display:flex; align-items:center; justify-content:center;
+  }
+  .big{
+    display:flex; align-items:center; justify-content:center; gap:12px;
+    width:100%; min-height:82px; border-radius:20px;
+    background:var(--accent); color:var(--accent-ink);
+    font-size:25px; font-weight:750; letter-spacing:-.01em;
+    box-shadow:0 3px 0 rgba(0,0,0,.18);
+  }
+  .big:active{transform:translateY(2px); box-shadow:0 1px 0 rgba(0,0,0,.18)}
+  .big svg{width:30px;height:30px}
+  .or{text-align:center; color:var(--ink-soft); font-size:16px; margin:20px 0 12px}
+  textarea{
+    width:100%; min-height:190px; padding:16px; border-radius:16px;
+    border:2px solid var(--line); background:var(--surface); color:var(--ink);
+    font-size:19px; line-height:1.45; font-family:inherit; resize:vertical;
+  }
+  textarea:focus{outline:3px solid var(--accent); outline-offset:1px}
+  .ghost{
+    display:block; width:100%; min-height:62px; margin-top:12px; border-radius:16px;
+    border:2px solid var(--accent); color:var(--accent); font-size:20px; font-weight:700;
+  }
+  .ghost:active{background:var(--line)}
+  .note{font-size:15px; color:var(--ink-soft); margin-top:14px; line-height:1.45; max-width:44ch}
+
+  /* ---------- reader ---------- */
+  #reader{flex:1 1 auto; display:flex; flex-direction:column; min-height:0}
+  #text{
+    flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    padding:20px var(--pad) 26px;
+    font-size:var(--fs); line-height:1.55;
+  }
+  #text .blk{margin:0 0 18px}
+  #text .c{
+    display:inline; padding:2px 1px; border-radius:6px;
+    transition:background .12s ease;
+  }
+  #text .c.current{background:var(--hl); box-shadow:0 0 0 2px var(--hl-line) inset}
+  #text .c.done{opacity:.5}
+  #text .meta{display:block; font-size:.68em; color:var(--ink-soft); font-weight:650; margin-bottom:2px}
+
+  /* ---------- controls ---------- */
+  #bar{
+    flex:0 0 auto; background:var(--surface); border-top:1px solid var(--line);
+    padding:12px var(--pad) calc(env(safe-area-inset-bottom) + 12px);
+  }
+  .prog{display:flex; align-items:center; gap:12px; margin-bottom:10px}
+  .prog .track{flex:1 1 auto; height:8px; border-radius:99px; background:var(--line); overflow:hidden}
+  .prog .fill{height:100%; width:0%; background:var(--accent); transition:width .18s linear}
+  .prog .count{font-size:15px; color:var(--ink-soft); font-variant-numeric:tabular-nums; white-space:nowrap}
+  .row{display:flex; gap:10px; align-items:stretch}
+  .ctl{
+    flex:1 1 0; min-height:76px; border-radius:18px; border:2px solid var(--line);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+    font-size:14px; font-weight:650; color:var(--ink-soft);
+  }
+  .ctl svg{width:28px;height:28px; fill:var(--ink)}
+  .ctl:active{background:var(--line)}
+  .ctl.play{
+    flex:1.7 1 0; background:var(--accent); border-color:var(--accent); color:var(--accent-ink);
+    font-size:20px; font-weight:750; flex-direction:row; gap:10px;
+  }
+  .ctl.play svg{width:32px;height:32px; fill:var(--accent-ink)}
+  .seg{display:flex; gap:8px; margin-top:10px}
+  .seg button{
+    flex:1 1 0; min-height:54px; border-radius:14px; border:2px solid var(--line);
+    font-size:17px; font-weight:650; color:var(--ink-soft);
+  }
+  .seg button[aria-pressed="true"]{background:var(--accent); border-color:var(--accent); color:var(--accent-ink)}
+  .seg .lbl{
+    flex:0 0 auto; display:flex; align-items:center; padding-right:2px;
+    font-size:15px; color:var(--ink-soft); font-weight:650; min-width:56px;
+  }
+
+  /* ---------- settings sheet ---------- */
+  #sheet{
+    position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:20;
+    display:flex; align-items:flex-end;
+  }
+  #sheet .card{
+    width:100%; background:var(--surface); border-radius:22px 22px 0 0;
+    padding:20px var(--pad) calc(env(safe-area-inset-bottom) + 20px);
+    max-height:86dvh; overflow-y:auto;
+  }
+  #sheet h2{margin:0 0 16px; font-size:22px}
+  .field{margin-bottom:20px}
+  .field label{display:block; font-size:17px; font-weight:650; margin-bottom:8px}
+  select{
+    width:100%; min-height:56px; padding:0 14px; font-size:18px; font-family:inherit;
+    border-radius:14px; border:2px solid var(--line); background:var(--surface); color:var(--ink);
+  }
+  .switch{display:flex; align-items:center; justify-content:space-between; gap:14px; min-height:56px}
+  .switch span{font-size:18px; max-width:26ch}
+  .toggle{
+    flex:0 0 auto; width:64px; height:38px; border-radius:99px; background:var(--line);
+    position:relative; transition:background .15s;
+  }
+  .toggle[aria-pressed="true"]{background:var(--accent)}
+  .toggle::after{
+    content:""; position:absolute; top:4px; left:4px; width:30px; height:30px; border-radius:50%;
+    background:#fff; transition:transform .15s; box-shadow:0 1px 3px rgba(0,0,0,.3);
+  }
+  .toggle[aria-pressed="true"]::after{transform:translateX(26px)}
+  #toast{
+    position:fixed; left:50%; bottom:calc(env(safe-area-inset-bottom) + 24px); transform:translateX(-50%);
+    background:var(--ink); color:var(--bg); padding:14px 20px; border-radius:14px;
+    font-size:17px; font-weight:600; z-index:40; max-width:88vw; text-align:center;
+    box-shadow:0 6px 22px rgba(0,0,0,.28);
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 180 180" aria-hidden="true">
+        <rect width="180" height="180" rx="40" fill="var(--accent)"/>
+        <path d="M62 68h22l26-22v88l-26-22H62z" fill="#fff"/>
+        <path d="M124 66a34 34 0 010 48M136 52a54 54 0 010 76" stroke="#fff" stroke-width="10" stroke-linecap="round" fill="none"/>
+      </svg>
+      <span>Read Aloud</span>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="hbtn hidden" id="btnNew">New text</button>
+      <button class="hbtn" id="btnSettings">Settings</button>
+    </div>
+  </header>
+
+  <!-- START -->
+  <section id="start">
+    <p class="lede">Copy messages in Telegram, then tap the button below. It reads everything, start to finish.</p>
+    <ol class="steps">
+      <li>In Telegram, hold a message, tap <b>Select</b>, then tap every other message you want.</li>
+      <li>Tap <b>Copy</b>.</li>
+      <li>Come back here and tap <b>Paste &amp; Play</b>.</li>
+    </ol>
+    <button class="big" id="btnPaste">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5a3 3 0 016 0h1.5A2.5 2.5 0 0118 7.5V19a2 2 0 01-2 2H6a2 2 0 01-2-2V7.5A2.5 2.5 0 016.5 5H8zm3-1a1 1 0 100 2 1 1 0 000-2z"/></svg>
+      Paste &amp; Play
+    </button>
+    <p class="or">or paste it in the box yourself</p>
+    <textarea id="ta" placeholder="Hold down here, tap Paste, then tap Start Reading."></textarea>
+    <button class="ghost" id="btnStart">Start Reading</button>
+    <p class="note">Tip: while it is reading, tap any sentence to jump there and read on from that point.</p>
+  </section>
+
+  <!-- READER -->
+  <section id="reader" class="hidden">
+    <div id="text"></div>
+    <div id="bar">
+      <div class="prog">
+        <div class="track"><div class="fill" id="fill"></div></div>
+        <div class="count" id="count">0 / 0</div>
+      </div>
+      <div class="row">
+        <button class="ctl" id="btnBack" aria-label="Back one sentence">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 6v5.2L19 6v12l-8-5.2V18l-8-6z"/></svg>
+          Back
+        </button>
+        <button class="ctl play" id="btnPlay" aria-label="Play or pause">
+          <svg id="icPlay" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>
+          <svg id="icPause" class="hidden" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+          <span id="playLabel">Play</span>
+        </button>
+        <button class="ctl" id="btnFwd" aria-label="Forward one sentence">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 6v5.2L5 6v12l8-5.2V18l8-6z"/></svg>
+          Skip
+        </button>
+      </div>
+      <div class="seg">
+        <div class="lbl">Speed</div>
+        <button data-rate="0.75" aria-pressed="false">Slow</button>
+        <button data-rate="1" aria-pressed="true">Normal</button>
+        <button data-rate="1.25" aria-pressed="false">Fast</button>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<!-- SETTINGS -->
+<div id="sheet" class="hidden">
+  <div class="card">
+    <h2>Settings</h2>
+    <div class="field">
+      <label for="voiceSel">Voice</label>
+      <select id="voiceSel"></select>
+    </div>
+    <div class="field">
+      <label for="sizeSel">Text size on screen</label>
+      <select id="sizeSel">
+        <option value="22">Normal</option>
+        <option value="26" selected>Large</option>
+        <option value="32">Extra large</option>
+        <option value="38">Huge</option>
+      </select>
+    </div>
+    <div class="field">
+      <div class="switch">
+        <span>Say who sent it and when</span>
+        <button class="toggle" id="tgNames" aria-pressed="false" aria-label="Say who sent it and when"></button>
+      </div>
+    </div>
+    <div class="field">
+      <div class="switch">
+        <span>Keep the screen awake while reading</span>
+        <button class="toggle" id="tgWake" aria-pressed="true" aria-label="Keep the screen awake while reading"></button>
+      </div>
+    </div>
+    <button class="big" id="btnCloseSheet">Done</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var synth = window.speechSynthesis;
+  var $ = function(id){ return document.getElementById(id); };
+
+  var state = {
+    chunks: [],        // [{text, speak, meta}]
+    idx: 0,
+    playing: false,
+    rate: 1,
+    voice: null,
+    sayNames: false,
+    keepAwake: true,
+    wakeLock: null,
+    guard: null,
+    retried: false
+  };
+
+  /* ------------------------------------------------------------------
+     TEXT PREP
+     Telegram's "copy selected messages" gives lines that look like:
+       Dad, [8/18/26 3:04 PM]
+       John Smith:
+       [3:04 PM] John Smith:
+     We detect those header lines and either speak them or skip them.
+  ------------------------------------------------------------------ */
+  var HEADER_PATTERNS = [
+    /^.{1,60},\s*\[[^\]]{3,40}\]\s*$/,             // Name, [8/18/26 3:04 PM]
+    /^\[[^\]]{3,40}\]\s*.{1,60}:?\s*$/,            // [3:04 PM] Name:
+    /^\[[^\]]{3,40}\]\s*$/,                        // [3:04 PM]
+    /^.{1,60}\s+\d{1,2}:\d{2}\s*(AM|PM)?\s*$/i,    // Name 3:04 PM
+    /^\d{1,2}:\d{2}\s*(AM|PM)?\s*$/i,              // 3:04 PM
+    /^\d{1,2}\/\d{1,2}\/\d{2,4}[^A-Za-z]*$/,       // 8/18/26
+    /^(In reply to|Forwarded from|Edited)\b.*$/i
+  ];
+
+  function isHeader(line){
+    for (var i=0;i<HEADER_PATTERNS.length;i++){
+      if (HEADER_PATTERNS[i].test(line)) return true;
+    }
+    return false;
+  }
+
+  function tidyHeader(line){
+    return line.replace(/[\[\]]/g,' ').replace(/[:,]\s*$/,'').replace(/\s+/g,' ').trim();
+  }
+
+  // Speakable form: strip URLs and emoji so it does not read gibberish.
+  function speakable(s){
+    return s
+      .replace(/https?:\/\/\S+/g, ' link ')
+      .replace(/www\.\S+/g, ' link ')
+      .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, ' ')
+      .replace(/\s+/g,' ')
+      .trim();
+  }
+
+  function splitSentences(block){
+    var parts = block.match(/[^.!?…]+[.!?…]+["')\]]*\s*|[^.!?…]+$/g) || [block];
+    var out = [];
+    for (var i=0;i<parts.length;i++){
+      var p = parts[i].trim();
+      if (!p) continue;
+      // Keep pieces short. Long pieces defeat some phone speech engines.
+      while (p.length > 180){
+        var cut = p.lastIndexOf(', ', 180);
+        if (cut < 60) cut = p.lastIndexOf(' ', 180);
+        if (cut < 60) cut = 180;
+        out.push(p.slice(0, cut+1).trim());
+        p = p.slice(cut+1).trim();
+      }
+      if (p) out.push(p);
+    }
+    return out;
+  }
+
+  function build(raw){
+    var lines = String(raw||'').replace(/\r/g,'').split('\n');
+    var chunks = [];
+    for (var i=0;i<lines.length;i++){
+      var line = lines[i].trim();
+      if (!line) continue;
+      if (isHeader(line)){
+        var h = tidyHeader(line);
+        if (!h) continue;
+        chunks.push({ text:h, speak: state.sayNames ? h + '.' : '', meta:true });
+        continue;
+      }
+      var sents = splitSentences(line);
+      for (var j=0;j<sents.length;j++){
+        var sp = speakable(sents[j]);
+        chunks.push({ text: sents[j], speak: sp, meta:false });
+      }
+    }
+    // Drop trailing chunks with nothing to say.
+    return chunks.filter(function(c){ return c.text && c.text.length; });
+  }
+
+  /* ------------------------------------------------------------------
+     RENDER
+  ------------------------------------------------------------------ */
+  function render(){
+    var host = $('text');
+    host.innerHTML = '';
+    var frag = document.createDocumentFragment();
+    var para = null;
+    for (var i=0;i<state.chunks.length;i++){
+      var c = state.chunks[i];
+      if (c.meta || !para){
+        para = document.createElement('p');
+        para.className = 'blk';
+        frag.appendChild(para);
+      }
+      var el = document.createElement('span');
+      el.className = c.meta ? 'c meta' : 'c';
+      el.dataset.i = i;
+      el.textContent = c.meta ? c.text : c.text + ' ';
+      para.appendChild(el);
+      if (c.meta){ para = null; }
+    }
+    host.appendChild(frag);
+    host.onclick = function(e){
+      var t = e.target.closest ? e.target.closest('.c') : null;
+      if (!t) return;
+      jumpTo(parseInt(t.dataset.i,10), true);
+    };
+    paint();
+  }
+
+  function paint(){
+    var nodes = $('text').querySelectorAll('.c');
+    for (var i=0;i<nodes.length;i++){
+      var n = nodes[i], k = parseInt(n.dataset.i,10);
+      n.classList.toggle('current', k === state.idx);
+      n.classList.toggle('done', k < state.idx);
+    }
+    var total = 0, at = 0;
+    for (var t=0;t<state.chunks.length;t++){
+      if (!state.chunks[t].speak) continue;
+      total++;
+      if (t <= state.idx) at = total;
+    }
+    if (!total) total = 1;
+    $('fill').style.width = Math.min(100, (at/total)*100) + '%';
+    $('count').textContent = Math.max(1, at) + ' / ' + total;
+    var cur = $('text').querySelector('.c.current');
+    if (cur && cur.scrollIntoView){
+      try { cur.scrollIntoView({block:'center', behavior:'smooth'}); }
+      catch(e){ cur.scrollIntoView(); }
+    }
+  }
+
+  function setPlayUI(on){
+    $('icPlay').classList.toggle('hidden', on);
+    $('icPause').classList.toggle('hidden', !on);
+    $('playLabel').textContent = on ? 'Pause' : 'Play';
+  }
+
+  /* ------------------------------------------------------------------
+     SPEECH
+  ------------------------------------------------------------------ */
+  function pickVoice(list){
+    var en = list.filter(function(v){ return /^en/i.test(v.lang); });
+    var pool = en.length ? en : list;
+    var favs = ['Samantha','Ava','Allison','Serena','Google US English','Microsoft Aria','Karen','Daniel'];
+    for (var f=0; f<favs.length; f++){
+      for (var i=0;i<pool.length;i++){
+        if (pool[i].name.indexOf(favs[f]) === 0) return pool[i];
+      }
+    }
+    for (var j=0;j<pool.length;j++){ if (pool[j].localService) return pool[j]; }
+    return pool[0] || null;
+  }
+
+  function loadVoices(){
+    var list = synth ? synth.getVoices() : [];
+    if (!list.length) return;
+    var sel = $('voiceSel');
+    sel.innerHTML = '';
+    var en = list.filter(function(v){ return /^en/i.test(v.lang); });
+    var show = en.length ? en : list;
+    show.forEach(function(v){
+      var o = document.createElement('option');
+      o.value = v.name; o.textContent = v.name + ' (' + v.lang + ')';
+      sel.appendChild(o);
+    });
+    if (!state.voice) state.voice = pickVoice(list);
+    if (state.voice) sel.value = state.voice.name;
+    sel.onchange = function(){
+      for (var i=0;i<list.length;i++){ if (list[i].name === sel.value){ state.voice = list[i]; break; } }
+      if (state.playing){ speakCurrent(); }
+    };
+  }
+
+  function clearGuard(){ if (state.guard){ clearTimeout(state.guard); state.guard = null; } }
+
+  function speakCurrent(){
+    if (!synth) return;
+    clearGuard();
+    try { synth.cancel(); } catch(e){}
+
+    while (state.idx < state.chunks.length && !state.chunks[state.idx].speak){
+      state.idx++;
+    }
+    if (state.idx >= state.chunks.length){ finish(); return; }
+    paint();
+
+    var text = state.chunks[state.idx].speak;
+    var u = new SpeechSynthesisUtterance(text);
+    if (state.voice) u.voice = state.voice;
+    u.rate = state.rate;
+    u.pitch = 1;
+    u.volume = 1;
+    u.lang = (state.voice && state.voice.lang) || 'en-US';
+
+    var mine = state.idx;
+    u.onend = function(){
+      if (!state.playing || state.idx !== mine) return;
+      clearGuard();
+      state.retried = false;
+      state.idx++;
+      if (state.idx >= state.chunks.length){ finish(); return; }
+      speakCurrent();
+    };
+    u.onerror = function(ev){
+      if (!state.playing || state.idx !== mine) return;
+      if (ev && (ev.error === 'interrupted' || ev.error === 'canceled')) return;
+      clearGuard();
+      state.idx++;
+      if (state.idx >= state.chunks.length){ finish(); return; }
+      speakCurrent();
+    };
+
+    // Watchdog: if the engine dies silently, move on instead of hanging.
+    var est = (text.length * 70) / Math.max(0.5, state.rate) + 1200;
+    state.guard = setTimeout(function(){
+      if (!state.playing || state.idx !== mine) return;
+      if (!state.retried){
+        state.retried = true;
+        speakCurrent();
+      } else {
+        state.retried = false;
+        state.idx++;
+        if (state.idx >= state.chunks.length){ finish(); return; }
+        speakCurrent();
+      }
+    }, est * 1.6 + 2500);
+
+    try { synth.speak(u); } catch(e){}
+  }
+
+  function finish(){
+    state.playing = false;
+    state.idx = state.chunks.length;
+    clearGuard();
+    setPlayUI(false);
+    paint();
+    releaseWake();
+    toast('Finished reading.');
+    state.idx = 0;
+    paint();
+  }
+
+  var primed = false;
+  function primeSpeech(){
+    if (primed || !synth) return;
+    try {
+      var u = new SpeechSynthesisUtterance(' ');
+      u.volume = 0;
+      synth.speak(u);
+      primed = true;
+    } catch(e){}
+  }
+
+  function play(){
+    if (!state.chunks.length) return;
+    if (state.idx >= state.chunks.length) state.idx = 0;
+    state.playing = true;
+    setPlayUI(true);
+    requestWake();
+    speakCurrent();
+  }
+
+  function pause(){
+    state.playing = false;
+    clearGuard();
+    try { synth.cancel(); } catch(e){}
+    setPlayUI(false);
+    releaseWake();
+  }
+
+  function jumpTo(i, autoplay){
+    if (isNaN(i)) return;
+    state.idx = Math.max(0, Math.min(i, state.chunks.length-1));
+    state.retried = false;
+    if (state.playing || autoplay){ play(); } else { paint(); }
+  }
+
+  function step(delta){
+    var i = state.idx + delta;
+    // Skip over sender/time labels when stepping.
+    while (i > 0 && i < state.chunks.length && !state.chunks[i].speak){ i += (delta>0?1:-1); }
+    jumpTo(i, state.playing);
+  }
+
+  /* ------------------------------------------------------------------
+     SCREEN WAKE LOCK  (iOS 16.4+, Android Chrome)
+  ------------------------------------------------------------------ */
+  function requestWake(){
+    if (!state.keepAwake || !navigator.wakeLock) return;
+    if (state.wakeLock) return;
+    navigator.wakeLock.request('screen').then(function(l){
+      state.wakeLock = l;
+      l.addEventListener('release', function(){ state.wakeLock = null; });
+    }).catch(function(){});
+  }
+  function releaseWake(){
+    if (state.wakeLock){ try { state.wakeLock.release(); } catch(e){} state.wakeLock = null; }
+  }
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'visible' && state.playing){ requestWake(); }
+  });
+
+  /* ------------------------------------------------------------------
+     Chrome desktop cuts speech off around 15s. Nudge it.
+  ------------------------------------------------------------------ */
+  var isApple = /iP(hone|ad|od)|Macintosh/.test(navigator.userAgent) && !/Chrome\//.test(navigator.userAgent);
+  if (!isApple){
+    setInterval(function(){
+      if (state.playing && synth && synth.speaking && !synth.paused){
+        try { synth.pause(); synth.resume(); } catch(e){}
+      }
+    }, 9000);
+  }
+
+  /* ------------------------------------------------------------------
+     UI WIRING
+  ------------------------------------------------------------------ */
+  var toastTimer = null;
+  function toast(msg){
+    var old = $('toast'); if (old) old.remove();
+    var d = document.createElement('div');
+    d.id = 'toast'; d.textContent = msg;
+    document.body.appendChild(d);
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ if (d.parentNode) d.remove(); }, 2600);
+  }
+
+  function openReader(raw, autoplay){
+    var chunks = build(raw);
+    if (!chunks.length){ toast('Nothing to read yet.'); return; }
+    state.chunks = chunks;
+    state.idx = 0;
+    state.retried = false;
+    $('start').classList.add('hidden');
+    $('reader').classList.remove('hidden');
+    $('btnNew').classList.remove('hidden');
+    render();
+    if (autoplay) play(); else setPlayUI(false);
+  }
+
+  $('btnPaste').addEventListener('click', function(){
+    primeSpeech();
+    if (navigator.clipboard && navigator.clipboard.readText){
+      navigator.clipboard.readText().then(function(t){
+        if (t && t.trim()){ openReader(t, true); }
+        else { toast('Clipboard is empty. Copy the messages first.'); $('ta').focus(); }
+      }).catch(function(){
+        toast('Paste into the box below, then tap Start Reading.');
+        $('ta').focus();
+      });
+    } else {
+      toast('Paste into the box below, then tap Start Reading.');
+      $('ta').focus();
+    }
+  });
+
+  $('btnStart').addEventListener('click', function(){
+    primeSpeech();
+    openReader($('ta').value, true);
+  });
+
+  $('btnNew').addEventListener('click', function(){
+    pause();
+    state.chunks = []; state.idx = 0;
+    $('reader').classList.add('hidden');
+    $('btnNew').classList.add('hidden');
+    $('start').classList.remove('hidden');
+    $('ta').value = '';
+  });
+
+  $('btnPlay').addEventListener('click', function(){
+    primeSpeech();
+    if (state.playing) pause(); else play();
+  });
+  $('btnBack').addEventListener('click', function(){ step(-1); });
+  $('btnFwd').addEventListener('click', function(){ step(1); });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.seg button'), function(b){
+    b.addEventListener('click', function(){
+      Array.prototype.forEach.call(document.querySelectorAll('.seg button'), function(x){
+        x.setAttribute('aria-pressed', String(x === b));
+      });
+      state.rate = parseFloat(b.dataset.rate);
+      if (state.playing) speakCurrent();
+    });
+  });
+
+  $('btnSettings').addEventListener('click', function(){ $('sheet').classList.remove('hidden'); });
+  $('btnCloseSheet').addEventListener('click', function(){ $('sheet').classList.add('hidden'); });
+  $('sheet').addEventListener('click', function(e){ if (e.target === $('sheet')) $('sheet').classList.add('hidden'); });
+
+  $('sizeSel').addEventListener('change', function(){
+    document.documentElement.style.setProperty('--fs', $('sizeSel').value + 'px');
+  });
+
+  $('tgNames').addEventListener('click', function(){
+    state.sayNames = $('tgNames').getAttribute('aria-pressed') !== 'true';
+    $('tgNames').setAttribute('aria-pressed', String(state.sayNames));
+    if (state.chunks.length){
+      for (var i=0;i<state.chunks.length;i++){
+        var c = state.chunks[i];
+        if (c.meta) c.speak = state.sayNames ? c.text + '.' : '';
+      }
+    }
+  });
+
+  $('tgWake').addEventListener('click', function(){
+    state.keepAwake = $('tgWake').getAttribute('aria-pressed') !== 'true';
+    $('tgWake').setAttribute('aria-pressed', String(state.keepAwake));
+    if (state.keepAwake && state.playing) requestWake(); else releaseWake();
+  });
+
+  document.addEventListener('keydown', function(e){
+    if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    if (e.code === 'Space'){ e.preventDefault(); state.playing ? pause() : play(); }
+    if (e.code === 'ArrowRight'){ e.preventDefault(); step(1); }
+    if (e.code === 'ArrowLeft'){ e.preventDefault(); step(-1); }
+  });
+
+  if (synth){
+    loadVoices();
+    if (typeof synth.onvoiceschanged !== 'undefined'){ synth.onvoiceschanged = loadVoices; }
+    setTimeout(loadVoices, 400);
+    setTimeout(loadVoices, 1500);
+  } else {
+    toast('This browser cannot speak. Try Safari or Chrome.');
+  }
+
+  window.addEventListener('pagehide', function(){ try { synth.cancel(); } catch(e){} releaseWake(); });
+
+  // Exposed for automated testing only.
+  window.__ra = { state: state, build: build, openReader: openReader };
+})();
+</script>
+</body>
+</html>
