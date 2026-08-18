@@ -292,6 +292,12 @@
     </div>
     <div class="field">
       <div class="switch">
+        <span>Skip web links instead of reading them</span>
+        <button class="toggle" id="tgLinks" aria-pressed="true" aria-label="Skip web links instead of reading them"></button>
+      </div>
+    </div>
+    <div class="field">
+      <div class="switch">
         <span>Say who sent it and when</span>
         <button class="toggle" id="tgNames" aria-pressed="false" aria-label="Say who sent it and when"></button>
       </div>
@@ -326,7 +332,9 @@
     retried: false,
     nodes: [],
     painted: null,
-    totalSpoken: 0
+    totalSpoken: 0,
+    skipLinks: true,
+    links: []
   };
 
   /* ------------------------------------------------------------------
@@ -358,13 +366,46 @@
     return line.replace(/[\[\]]/g,' ').replace(/[:,]\s*$/,'').replace(/\s+/g,' ').trim();
   }
 
-  // Speakable form: strip URLs and emoji so it does not read gibberish.
-  function speakable(s){
-    return s
-      .replace(/https?:\/\/\S+/g, ' link ')
-      .replace(/www\.\S+/g, ' link ')
+  // A TLD list rather than "any dot" keeps "e.g." and "Mr." out of it while
+  // still catching bare addresses like example.com/page and t.me/channel.
+  var TLD = 'com|org|net|edu|gov|mil|int|io|co|me|us|uk|ca|au|de|fr|ru|jp|cn|in|br'
+          + '|info|biz|tv|app|dev|ly|gl|xyz|online|site|link|news|blog|shop|store|ai';
+  var RE_URL   = new RegExp('https?:\\/\\/\\S+|www\\.\\S+', 'gi');
+  var RE_BARE  = new RegExp('\\b[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9-]+)*\\.(?:' + TLD + ')(?:\\/\\S*)?\\b', 'gi');
+  var RE_EMAIL = /\b[^\s@]+@[^\s@]+\.[a-z]{2,}\b/gi;
+
+  var OPEN = '\uE000', CLOSE = '\uE001';
+  var RE_SLOT = /\uE000(\d+)\uE001/g;
+
+  // Swap every link/email for a placeholder with no periods in it, so the
+  // sentence splitter cannot cut one in half.
+  function stashLinks(line, links){
+    function keep(m){ links.push(m); return OPEN + (links.length - 1) + CLOSE; }
+    return String(line)
+      .replace(RE_EMAIL, keep)
+      .replace(RE_URL, keep)
+      .replace(RE_BARE, keep);
+  }
+
+  // On screen he still sees the real link.
+  function restoreLinks(tmpl){
+    return String(tmpl)
+      .replace(RE_SLOT, function(_, i){ var v = state.links[+i]; return v === undefined ? '' : v; })
+      .replace(/[\uE000\uE001]/g, '');
+  }
+
+  // Out loud it is either silence or the word "link".
+  function speakOf(tmpl){
+    return String(tmpl)
+      .replace(RE_SLOT, function(_, i){
+        if (state.skipLinks) return ' ';
+        var v = state.links[+i] || '';
+        return (v.indexOf('@') !== -1 && !/^(https?:|www\.)/i.test(v)) ? ' email address ' : ' link ';
+      })
+      .replace(/[\uE000\uE001]/g, '')
       .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, ' ')
-      .replace(/\s+/g,' ')
+      .replace(/\s+/g, ' ')
+      .replace(/^[\s.,;:!?"'()\[\]-]+$/, '')   // nothing left but punctuation
       .trim();
   }
 
@@ -390,29 +431,58 @@
   function build(raw){
     var lines = String(raw||'').replace(/\r/g,'').split('\n');
     var chunks = [];
+    var links = [];
     for (var i=0;i<lines.length;i++){
       var line = lines[i].trim();
       if (!line) continue;
       if (isHeader(line)){
         var h = tidyHeader(line);
         if (!h) continue;
-        chunks.push({ text:h, speak: state.sayNames ? h + '.' : '', meta:true });
+        chunks.push({ tmpl:h, meta:true });
         continue;
       }
-      var sents = splitSentences(line);
+      var sents = splitSentences(stashLinks(line, links));
       for (var j=0;j<sents.length;j++){
-        var sp = speakable(sents[j]);
-        chunks.push({ text: sents[j], speak: sp, meta:false });
+        chunks.push({ tmpl: sents[j], meta:false });
       }
     }
+    state.links = links;
+    for (var k=0;k<chunks.length;k++){
+      var c = chunks[k];
+      c.text = restoreLinks(c.tmpl);
+      c.speak = c.meta ? (state.sayNames ? c.text + '.' : '') : speakOf(c.tmpl);
+    }
     chunks = chunks.filter(function(c){ return c.text && c.text.length; });
-    // ord = how many speakable chunks exist up to and including this one.
+    reindex(chunks);
+    return chunks;
+  }
+
+  // ord = how many speakable chunks exist up to and including this one.
+  // Recomputed whenever a setting changes what counts as speakable.
+  function reindex(chunks){
     var run = 0;
     for (var k=0;k<chunks.length;k++){
       if (chunks[k].speak) run++;
       chunks[k].ord = run;
     }
-    return chunks;
+    return run;
+  }
+
+  // Re-derive spoken text for every chunk after a settings change, then fix up
+  // the progress numbers and the highlight so they still line up.
+  function resettle(){
+    if (!state.chunks.length) return;
+    for (var i=0;i<state.chunks.length;i++){
+      var c = state.chunks[i];
+      c.speak = c.meta ? (state.sayNames ? c.text + '.' : '') : speakOf(c.tmpl);
+    }
+    state.totalSpoken = reindex(state.chunks);
+    // If the highlight landed on something that is now silent, step forward.
+    while (state.idx < state.chunks.length && !state.chunks[state.idx].speak) state.idx++;
+    if (state.idx >= state.chunks.length) state.idx = 0;
+    state.painted = null;
+    paint();
+    if (state.playing) speakCurrent();
   }
 
   /* ------------------------------------------------------------------
@@ -520,6 +590,7 @@
     for (var n=0;n<all.length;n++){ state.nodes[parseInt(all[n].dataset.i,10)] = all[n]; }
     state.painted = null;
     state.totalSpoken = state.chunks.length ? state.chunks[state.chunks.length-1].ord : 0;
+    if (!state.totalSpoken) state.totalSpoken = 1;
     host.onclick = function(e){
       var t = e.target.closest ? e.target.closest('.c') : null;
       if (!t) return;
@@ -841,15 +912,17 @@
     document.documentElement.style.setProperty('--fs', $('sizeSel').value + 'px');
   });
 
+  $('tgLinks').addEventListener('click', function(){
+    state.skipLinks = $('tgLinks').getAttribute('aria-pressed') !== 'true';
+    $('tgLinks').setAttribute('aria-pressed', String(state.skipLinks));
+    resettle();
+    toast(state.skipLinks ? 'Web links will be skipped.' : 'Web links will be read as "link".');
+  });
+
   $('tgNames').addEventListener('click', function(){
     state.sayNames = $('tgNames').getAttribute('aria-pressed') !== 'true';
     $('tgNames').setAttribute('aria-pressed', String(state.sayNames));
-    if (state.chunks.length){
-      for (var i=0;i<state.chunks.length;i++){
-        var c = state.chunks[i];
-        if (c.meta) c.speak = state.sayNames ? c.text + '.' : '';
-      }
-    }
+    resettle();
   });
 
   $('tgWake').addEventListener('click', function(){
@@ -865,7 +938,9 @@
     if (e.code === 'ArrowLeft'){ e.preventDefault(); step(-1); }
   });
 
+  var urlTruncated = false;
   function textFromUrl(){
+    urlTruncated = false;
     var src = [location.hash || '', location.search || ''];
     for (var i=0;i<src.length;i++){
       var m = src[i].match(/[#?&]t=([^&]*)/);
@@ -874,6 +949,8 @@
         catch(e){
           try { return decodeURIComponent(m[1].replace(/\+/g,'%20')); } catch(e2){}
           try { return unescape(m[1]); } catch(e3){}
+          // Arrived but would not decode: almost always a URL cut short by iOS.
+          urlTruncated = true;
         }
       }
     }
@@ -882,6 +959,10 @@
 
   function loadFromUrl(){
     var t = textFromUrl();
+    if ((!t || !t.trim()) && urlTruncated){
+      toast('That thread was too long to hand over. Use Copy, then Paste & Play.');
+      return false;
+    }
     if (!t || !t.trim()) return false;
     openReader(t, false);
     $('btnPlay').classList.add('waiting');
@@ -905,7 +986,7 @@
   loadFromUrl();
 
   // Exposed for automated testing only.
-  window.__ra = { state: state, build: build, openReader: openReader, paint: paint };
+  window.__ra = { state: state, build: build, openReader: openReader, paint: paint, speakOf: speakOf, stashLinks: stashLinks };
 })();
 </script>
 </body>
