@@ -309,7 +309,10 @@
     keepAwake: true,
     wakeLock: null,
     guard: null,
-    retried: false
+    retried: false,
+    nodes: [],
+    painted: null,
+    totalSpoken: 0
   };
 
   /* ------------------------------------------------------------------
@@ -388,8 +391,14 @@
         chunks.push({ text: sents[j], speak: sp, meta:false });
       }
     }
-    // Drop trailing chunks with nothing to say.
-    return chunks.filter(function(c){ return c.text && c.text.length; });
+    chunks = chunks.filter(function(c){ return c.text && c.text.length; });
+    // ord = how many speakable chunks exist up to and including this one.
+    var run = 0;
+    for (var k=0;k<chunks.length;k++){
+      if (chunks[k].speak) run++;
+      chunks[k].ord = run;
+    }
+    return chunks;
   }
 
   /* ------------------------------------------------------------------
@@ -492,6 +501,11 @@
       if (c.meta){ para = null; }
     }
     host.appendChild(frag);
+    state.nodes = new Array(state.chunks.length);
+    var all = host.querySelectorAll('.c');
+    for (var n=0;n<all.length;n++){ state.nodes[parseInt(all[n].dataset.i,10)] = all[n]; }
+    state.painted = null;
+    state.totalSpoken = state.chunks.length ? state.chunks[state.chunks.length-1].ord : 0;
     host.onclick = function(e){
       var t = e.target.closest ? e.target.closest('.c') : null;
       if (!t) return;
@@ -501,25 +515,32 @@
   }
 
   function paint(){
-    var nodes = $('text').querySelectorAll('.c');
-    for (var i=0;i<nodes.length;i++){
-      var n = nodes[i], k = parseInt(n.dataset.i,10);
-      n.classList.toggle('current', k === state.idx);
-      n.classList.toggle('done', k < state.idx);
+    var nodes = state.nodes || [];
+    var prev = state.painted;
+    var lo, hi;
+    if (prev === null || prev === undefined || Math.abs(state.idx - prev) > 64){
+      lo = 0; hi = nodes.length - 1;              // first paint, or a big jump
+    } else {
+      lo = Math.min(prev, state.idx); hi = Math.max(prev, state.idx);
     }
-    var total = 0, at = 0;
-    for (var t=0;t<state.chunks.length;t++){
-      if (!state.chunks[t].speak) continue;
-      total++;
-      if (t <= state.idx) at = total;
+    for (var i=lo;i<=hi;i++){
+      var n = nodes[i];
+      if (!n) continue;
+      n.classList.toggle('current', i === state.idx);
+      n.classList.toggle('done', i < state.idx);
     }
-    if (!total) total = 1;
+    state.painted = state.idx;
+
+    var total = state.totalSpoken || 1;
+    var cur = state.chunks[state.idx];
+    var at = cur ? cur.ord : total;
     $('fill').style.width = Math.min(100, (at/total)*100) + '%';
     $('count').textContent = Math.max(1, at) + ' / ' + total;
-    var cur = $('text').querySelector('.c.current');
-    if (cur && cur.scrollIntoView){
-      try { cur.scrollIntoView({block:'center', behavior:'smooth'}); }
-      catch(e){ cur.scrollIntoView(); }
+
+    var el = nodes[state.idx];
+    if (el && el.scrollIntoView){
+      try { el.scrollIntoView({block:'center', behavior:'smooth'}); }
+      catch(e){ el.scrollIntoView(); }
     }
   }
 
@@ -870,7 +891,7 @@
   loadFromUrl();
 
   // Exposed for automated testing only.
-  window.__ra = { state: state, build: build, openReader: openReader };
+  window.__ra = { state: state, build: build, openReader: openReader, paint: paint };
 })();
 </script>
 </body>
