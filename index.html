@@ -957,6 +957,8 @@
     return '';
   }
 
+  var URL_SAFE_CHARS = 45000;   // ~66k once encoded, against Safari's 80k ceiling
+
   function loadFromUrl(){
     var t = textFromUrl();
     if ((!t || !t.trim()) && urlTruncated){
@@ -964,9 +966,12 @@
       return false;
     }
     if (!t || !t.trim()) return false;
+    var huge = t.length > URL_SAFE_CHARS;
     openReader(t, false);
     $('btnPlay').classList.add('waiting');
-    toast('Ready. Tap the big Play button.');
+    if (huge){
+      toast('Close to the size limit. Check the last message is here, or use Copy and Paste & Play.');
+    }
     return true;
   }
 
