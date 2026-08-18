@@ -355,6 +355,18 @@
     /^(In reply to|Forwarded from|Edited)\b.*$/i
   ];
 
+  var RE_MEDIA = new RegExp(
+    '^(?:' +
+      'telegram\\s+(?:video|photo|image|audio|document|voice|file|gif)|' +
+      '(?:video|photo|image|audio|voice|sticker|animation|gif|document|file)(?:\\s+message)?|' +
+      '[\\w .()-]{1,60}\\.(?:gif|mov|mp4|m4a|jpg|jpeg|png|heic|webp|tiff|pdf|docx?|xlsx?|zip|mp3|wav|ogg|webm)' +
+    ')$', 'i');
+
+  // A message that is only a media attachment has no words to read.
+  function isMediaPlaceholder(line){
+    return RE_MEDIA.test(String(line).trim());
+  }
+
   function isHeader(line){
     for (var i=0;i<HEADER_PATTERNS.length;i++){
       if (HEADER_PATTERNS[i].test(line)) return true;
@@ -441,6 +453,10 @@
         chunks.push({ tmpl:h, meta:true });
         continue;
       }
+      if (isMediaPlaceholder(line)){
+        chunks.push({ tmpl: line, meta:false, media:true });
+        continue;
+      }
       var sents = splitSentences(stashLinks(line, links));
       for (var j=0;j<sents.length;j++){
         chunks.push({ tmpl: sents[j], meta:false });
@@ -450,7 +466,8 @@
     for (var k=0;k<chunks.length;k++){
       var c = chunks[k];
       c.text = restoreLinks(c.tmpl);
-      c.speak = c.meta ? (state.sayNames ? c.text + '.' : '') : speakOf(c.tmpl);
+      c.media = c.media || (!c.meta && isMediaPlaceholder(c.text));
+      c.speak = (c.meta || c.media) ? (c.meta && state.sayNames ? c.text + '.' : '') : speakOf(c.tmpl);
     }
     chunks = chunks.filter(function(c){ return c.text && c.text.length; });
     reindex(chunks);
@@ -474,7 +491,7 @@
     if (!state.chunks.length) return;
     for (var i=0;i<state.chunks.length;i++){
       var c = state.chunks[i];
-      c.speak = c.meta ? (state.sayNames ? c.text + '.' : '') : speakOf(c.tmpl);
+      c.speak = (c.meta || c.media) ? (c.meta && state.sayNames ? c.text + '.' : '') : speakOf(c.tmpl);
     }
     state.totalSpoken = reindex(state.chunks);
     // If the highlight landed on something that is now silent, step forward.
@@ -969,7 +986,18 @@
     var huge = t.length > URL_SAFE_CHARS;
     openReader(t, false);
     $('btnPlay').classList.add('waiting');
-    if (huge){
+
+    // Count what actually arrived. iOS hands over attachments instead of text
+    // once a Telegram selection gets large, and the result is a page of
+    // filenames with nothing to read.
+    var media = 0, words = 0;
+    for (var i=0;i<state.chunks.length;i++){
+      if (state.chunks[i].meta) continue;
+      if (state.chunks[i].media) media++; else if (state.chunks[i].speak) words++;
+    }
+    if (media > 0 && words <= media){
+      toast('Only attachments came through, not the words. Go back, tap Copy instead, then Paste & Play.');
+    } else if (huge){
       toast('Close to the size limit. Check the last message is here, or use Copy and Paste & Play.');
     }
     return true;
