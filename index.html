@@ -190,6 +190,19 @@
     background:#fff; transition:transform .15s; box-shadow:0 1px 3px rgba(0,0,0,.3);
   }
   .toggle[aria-pressed="true"]::after{transform:translateX(26px)}
+  #tapstart{
+    position:fixed; inset:0; z-index:30;
+    background:rgba(11,99,206,.94); color:#fff;
+    display:flex; align-items:center; justify-content:center;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #tapstart .tapinner{text-align:center; padding:24px}
+  #tapstart svg{width:96px; height:96px; fill:#fff; opacity:.95}
+  #tapstart p{
+    margin:18px 0 0; font-size:30px; line-height:1.25; font-weight:750; letter-spacing:-.01em;
+  }
+  #tapstart:active{background:rgba(9,84,176,.96)}
+
   #toast{
     position:fixed; left:50%; top:calc(env(safe-area-inset-top) + 74px); transform:translateX(-50%);
     background:var(--ink); color:var(--bg); padding:14px 20px; border-radius:14px;
@@ -273,6 +286,14 @@
 
 </div>
 
+<!-- TAP TO START -->
+<div id="tapstart" class="hidden">
+  <div class="tapinner">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>
+    <p>Tap anywhere<br>to start reading</p>
+  </div>
+</div>
+
 <!-- SETTINGS -->
 <div id="sheet" class="hidden">
   <div class="card">
@@ -334,7 +355,8 @@
     painted: null,
     totalSpoken: 0,
     skipLinks: true,
-    links: []
+    links: [],
+    spoke: false
   };
 
   /* ------------------------------------------------------------------
@@ -710,6 +732,7 @@
     u.lang = (state.voice && state.voice.lang) || 'en-US';
 
     var mine = state.idx;
+    u.onstart = function(){ state.spoke = true; };
     u.onend = function(){
       if (!state.playing || state.idx !== mine) return;
       clearGuard();
@@ -997,10 +1020,42 @@
     }
     if (media > 0 && words <= media){
       toast('Only attachments came through, not the words. Go back, tap Copy instead, then Paste & Play.');
-    } else if (huge){
+      return true;
+    }
+    if (huge){
       toast('Close to the size limit. Check the last message is here, or use Copy and Paste & Play.');
     }
+    tryAutoplay();
     return true;
+  }
+
+  // Try to start on our own. iOS will refuse, so watch for silence and then
+  // turn the whole screen into the Play button.
+  function tryAutoplay(){
+    state.spoke = false;
+    play();
+    setTimeout(function(){
+      if (state.spoke) return;                 // platform allowed it
+      pause();
+      state.painted = null;
+      paint();
+      showTapToStart();
+    }, 500);
+  }
+
+  function showTapToStart(){
+    var el = $('tapstart');
+    el.classList.remove('hidden');
+    var go = function(e){
+      if (e) e.preventDefault();
+      el.classList.add('hidden');
+      el.removeEventListener('pointerdown', go);
+      el.removeEventListener('click', go);
+      primeSpeech();
+      play();
+    };
+    el.addEventListener('pointerdown', go);
+    el.addEventListener('click', go);
   }
 
   window.addEventListener('hashchange', loadFromUrl);
