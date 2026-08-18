@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Read Aloud</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -135,6 +135,12 @@
     font-size:20px; font-weight:750; flex-direction:row; gap:10px;
   }
   .ctl.play svg{width:32px;height:32px; fill:var(--accent-ink)}
+  @keyframes waitPulse{
+    0%,100%{box-shadow:0 0 0 0 rgba(11,99,206,.55)}
+    50%{box-shadow:0 0 0 12px rgba(11,99,206,0)}
+  }
+  .ctl.play.waiting{animation:waitPulse 1.5s ease-out infinite}
+  @media (prefers-reduced-motion: reduce){ .ctl.play.waiting{animation:none} }
   .seg{display:flex; gap:8px; margin-top:10px}
   .seg button{
     flex:1 1 0; min-height:54px; border-radius:14px; border:2px solid var(--line);
@@ -205,9 +211,9 @@
   <section id="start">
     <p class="lede">Copy messages in Telegram, then tap the button below. It reads everything, start to finish.</p>
     <ol class="steps">
-      <li>In Telegram, hold a message, tap <b>Select</b>, then tap every other message you want.</li>
-      <li>Tap <b>Copy</b>.</li>
-      <li>Come back here and tap <b>Paste &amp; Play</b>.</li>
+      <li>In Telegram, hold a message, tap <b>Select</b>, then tap the other messages you want.</li>
+      <li>Tap the <b>share arrow</b> at the bottom (the box with an arrow going up), then tap <b>Copy</b>.</li>
+      <li>Come back here, tap <b>Paste &amp; Play</b>, then tap the small <b>Paste</b> button iPhone pops up.</li>
     </ol>
     <button class="big" id="btnPaste">
       <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor"><path d="M8 5a3 3 0 016 0h1.5A2.5 2.5 0 0118 7.5V19a2 2 0 01-2 2H6a2 2 0 01-2-2V7.5A2.5 2.5 0 016.5 5H8zm3-1a1 1 0 100 2 1 1 0 000-2z"/></svg>
@@ -384,6 +390,83 @@
     }
     // Drop trailing chunks with nothing to say.
     return chunks.filter(function(c){ return c.text && c.text.length; });
+  }
+
+  /* ------------------------------------------------------------------
+     CLIPBOARD
+
+     Telegram on iOS copies each selected message as a SEPARATE pasteboard
+     item. navigator.clipboard.readText() only ever returns the first one,
+     which is why 25 messages arrived as 1. navigator.clipboard.read()
+     exposes the full ordered list, so we walk every item and stitch them
+     back together. Native apps like Notes do this automatically, which is
+     why pasting there looked fine.
+  ------------------------------------------------------------------ */
+  function htmlToText(html){
+    var clean = String(html||'')
+      .replace(/<(script|style)[^>]*>[\s\S]*?<\/\1>/gi,' ')
+      .replace(/<img[^>]*>/gi,' ')
+      .replace(/<iframe[^>]*>[\s\S]*?<\/iframe>/gi,' ');
+    var d = document.createElement('div');
+    d.innerHTML = clean;
+    Array.prototype.forEach.call(d.querySelectorAll('br'), function(br){
+      if (br.parentNode) br.parentNode.replaceChild(document.createTextNode('\n'), br);
+    });
+    Array.prototype.forEach.call(d.querySelectorAll('p,div,li,tr,h1,h2,h3,h4,blockquote'), function(el){
+      el.appendChild(document.createTextNode('\n'));
+    });
+    return (d.textContent||'').replace(/\n{3,}/g,'\n\n').trim();
+  }
+
+  function longest(){
+    var best = '';
+    for (var i=0;i<arguments.length;i++){
+      var v = arguments[i];
+      if (typeof v === 'string' && v.trim().length > best.trim().length) best = v;
+    }
+    return best;
+  }
+
+  // One permission prompt only. Never call read() and readText() together.
+  function readClipboard(){
+    if (navigator.clipboard && navigator.clipboard.read){
+      return navigator.clipboard.read().then(function(items){
+        var jobs = [];
+        for (var i=0;i<items.length;i++){
+          jobs.push(itemText(items[i]));
+        }
+        return Promise.all(jobs);
+      }).then(function(parts){
+        var text = parts.filter(function(x){ return x && x.trim(); }).join('\n');
+        if (text.trim()) return text;
+        throw new Error('empty');
+      }).catch(function(){
+        // Older Safari, or read() refused. Fall back to the single-item path.
+        if (navigator.clipboard && navigator.clipboard.readText){
+          return navigator.clipboard.readText();
+        }
+        return '';
+      });
+    }
+    if (navigator.clipboard && navigator.clipboard.readText){
+      return navigator.clipboard.readText();
+    }
+    return Promise.reject(new Error('no clipboard api'));
+  }
+
+  function itemText(item){
+    var types = (item && item.types) || [];
+    var has = function(t){ return Array.prototype.indexOf.call(types, t) >= 0; };
+    var jobs = [];
+    if (has('text/plain')){
+      jobs.push(item.getType('text/plain').then(function(b){ return b.text(); }).catch(function(){ return ''; }));
+    }
+    if (has('text/html')){
+      jobs.push(item.getType('text/html').then(function(b){ return b.text(); })
+        .then(htmlToText).catch(function(){ return ''; }));
+    }
+    if (!jobs.length) return Promise.resolve('');
+    return Promise.all(jobs).then(function(vals){ return longest.apply(null, vals); });
   }
 
   /* ------------------------------------------------------------------
@@ -564,6 +647,7 @@
 
   function play(){
     if (!state.chunks.length) return;
+    $('btnPlay').classList.remove('waiting');
     if (state.idx >= state.chunks.length) state.idx = 0;
     state.playing = true;
     setPlayUI(true);
@@ -646,22 +730,40 @@
     $('reader').classList.remove('hidden');
     $('btnNew').classList.remove('hidden');
     render();
+
+    var msgs = 0, sents = 0;
+    for (var i=0;i<chunks.length;i++){
+      if (chunks[i].meta) msgs++; else if (chunks[i].speak) sents++;
+    }
+    toast(msgs > 1 ? ('Loaded ' + msgs + ' messages.') : ('Loaded ' + sents + ' sentences.'));
+
     if (autoplay) play(); else setPlayUI(false);
   }
 
   $('btnPaste').addEventListener('click', function(){
     primeSpeech();
-    if (navigator.clipboard && navigator.clipboard.readText){
-      navigator.clipboard.readText().then(function(t){
-        if (t && t.trim()){ openReader(t, true); }
-        else { toast('Clipboard is empty. Copy the messages first.'); $('ta').focus(); }
-      }).catch(function(){
-        toast('Paste into the box below, then tap Start Reading.');
-        $('ta').focus();
-      });
-    } else {
+    readClipboard().then(function(t){
+      if (t && t.trim()){ openReader(t, true); }
+      else { toast('Clipboard is empty. Copy the messages in Telegram first.'); $('ta').focus(); }
+    }).catch(function(){
       toast('Paste into the box below, then tap Start Reading.');
       $('ta').focus();
+    });
+  });
+
+  $('ta').addEventListener('paste', function(e){
+    var dt = e.clipboardData;
+    if (!dt) return;
+    var plain = '', html = '';
+    try { plain = dt.getData('text/plain') || ''; } catch(err){}
+    try { html = htmlToText(dt.getData('text/html') || ''); } catch(err){}
+    var best = longest(plain, html);
+    if (best && best.length > plain.length){
+      e.preventDefault();
+      var el = $('ta');
+      var a = el.selectionStart, b = el.selectionEnd;
+      el.value = el.value.slice(0,a) + best + el.value.slice(b);
+      el.selectionStart = el.selectionEnd = a + best.length;
     }
   });
 
@@ -728,6 +830,32 @@
     if (e.code === 'ArrowLeft'){ e.preventDefault(); step(-1); }
   });
 
+  function textFromUrl(){
+    var src = [location.hash || '', location.search || ''];
+    for (var i=0;i<src.length;i++){
+      var m = src[i].match(/[#?&]t=([^&]*)/);
+      if (m && m[1]){
+        try { return decodeURIComponent(m[1]); }
+        catch(e){
+          try { return decodeURIComponent(m[1].replace(/\+/g,'%20')); } catch(e2){}
+          try { return unescape(m[1]); } catch(e3){}
+        }
+      }
+    }
+    return '';
+  }
+
+  function loadFromUrl(){
+    var t = textFromUrl();
+    if (!t || !t.trim()) return false;
+    openReader(t, false);
+    $('btnPlay').classList.add('waiting');
+    toast('Ready. Tap the big Play button.');
+    return true;
+  }
+
+  window.addEventListener('hashchange', loadFromUrl);
+
   if (synth){
     loadVoices();
     if (typeof synth.onvoiceschanged !== 'undefined'){ synth.onvoiceschanged = loadVoices; }
@@ -738,6 +866,8 @@
   }
 
   window.addEventListener('pagehide', function(){ try { synth.cancel(); } catch(e){} releaseWake(); });
+
+  loadFromUrl();
 
   // Exposed for automated testing only.
   window.__ra = { state: state, build: build, openReader: openReader };
